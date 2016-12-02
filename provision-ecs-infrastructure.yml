@@ -1,0 +1,50 @@
+---
+- name: Provision ECS infrastructure
+  hosts: localhost
+  connection: local
+  vars:
+    cassandra:
+      username: 'akkarestdemo'
+      password: '4kk4restdemo!'
+  tasks:
+  - name: Create ECS Stacks via CloudFormation Templates
+    cloudformation:
+      stack_name: "CiCdAkka-{{ lookup('env','BUILD_TAG') | default(ansible_date_time.iso8601_basic_short, true) }}"
+      region: '{{ item.regionname }}'
+      state: 'present'
+      template: 'cf-templates/cf_provision_ecs_stack.yaml'
+      disable_rollback: false
+      # cf template parameters need to be exposed to inner templates as well
+      template_parameters:
+        InstanceType: 'c4.large'
+        KeyPair: '{{ item.sshkey }}'
+        DesiredCount: 6
+        ClusterSize: 2
+        ContainerMemory: 1024
+        ContainerActualPort: 8080
+        ContainerPublishedPort: 8080
+        ContainerRegistryURL: '{{ item.ecrurl }}'
+        DC: '{{ item.dcname}}'
+        # not currently in use in CF
+        EnvironmentVars: >
+          "[ 'Name: DC, Value: {{ item.dcname}}',
+             'Name: CASSANDRA_CONTACT_POINTS, Value: {{ item.cassandra_seeds }}',
+             'Name: CASSANDRA_USERNAME, Value: {{ cassandra.username }}',
+             'Name: CASSANDRA_PASSWORD, Value: {{ cassandra.password }}'
+           ]"
+    register: cf_stack_job
+    with_items:
+      # region-specific settings
+      - dcname: 'ireland'
+        regionname: 'eu-west-1'
+        sshkey: 'GW2_HelloWorld_eu-west-1'
+        cassandra_seeds: '52.212.224.122, 52.213.122.88, 52.49.25.231'
+        ecrurl: '840967664378.dkr.ecr.eu-west-1.amazonaws.com/helloworld/sut-jvm:latest'
+      # - dcname: 'frankfurt'
+      #   regionname: 'eu-central-1'
+      #   sshkey: 'GW2_HelloWorld_eu-central-1'
+      #   cassandra_seeds: '35.156.161.43, 35.156.164.165, 35.156.163.203'
+      #   ecrurl: '840967664378.dkr.ecr.eu-central-1.amazonaws.com/helloworld/sut-jvm:latest'
+  - debug:
+      var: cf_stack_job.stack_outputs
+    when: cf_stack_job.changed
